@@ -2,16 +2,9 @@ from abc import abstractmethod, ABC
 from typing import Callable, Optional, Any, List
 
 import numpy as np
-from descriptors import classproperty
-
-import datagen
 
 
 class Variable(ABC):
-    @classproperty
-    def rng(self) -> np.random.Generator:
-        return datagen.random
-
     @property
     @abstractmethod
     def value(self, *args: np.ndarray) -> np.ndarray:

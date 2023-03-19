@@ -1,26 +1,35 @@
 import inspect
-from typing import Callable, Optional, Dict, Union, List, Set
+from typing import Callable, Optional, Dict, Union, List, Set, Tuple
 
 import networkx as nx
 import numpy as np
 import pandas as pd
-from descriptors import classproperty
 from matplotlib import pyplot as plt
 
-import datagen
-from datagen.sources import SIZE
 from datagen.variables import Variable, Node, Intermediate
 
 
 class Generator:
-    def __init__(self):
-        self._counter: int = 0
+    @staticmethod
+    def _get_rng(seed: Union[None, int, np.random.Generator]) -> np.random.Generator:
+        if seed is None:
+            # noinspection PyTypeChecker
+            return np.random
+        elif isinstance(seed, int):
+            return np.random.default_rng(seed)
+        else:
+            return seed
+
+    def __init__(self, seed: Union[None, int, np.random.Generator] = 42):
+        self._rng: np.random.Generator = Generator._get_rng(seed)
+        self._size: Optional[int] = None
+        self._counters: Dict[str, int] = {}
         self._graph: nx.DiGraph = nx.DiGraph()
         self._nodes: Dict[str, Node] = {}
 
-    @classproperty
-    def rng(self) -> np.random.Generator:
-        return datagen.random
+    @property
+    def random(self) -> np.random.Generator:
+        return self._rng
 
     @property
     def graph(self) -> nx.DiGraph:
@@ -42,48 +51,89 @@ class Generator:
     def sources(self) -> List[Node]:
         return [v for v in self._nodes.values() if v.source]
 
-    def add(self,
-            function: Union[str, Variable, Callable],
-            parents: Optional[List[Union[str, Node]]] = None,
-            name: Optional[str] = None,
-            hidden: bool = False,
-            **kwargs) -> Node:
-        if isinstance(function, str):
-            assert parents is None, f"Numpy distributions must have no parents, please use 'parents=None'"
-            return self._add_source(dist=function, name=name, hidden=hidden, **kwargs)
-        elif isinstance(function, Variable):
-            assert len(kwargs) == 0, f"Derived variables must have no additional arguments, please use no kwargs"
+    def reset_seed(self, seed: Union[None, int, np.random.Generator]):
+        self._rng = Generator._get_rng(seed)
+
+    def noise(self, amount: float = 1.0, hidden: bool = True, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.normal(loc=0.0, scale=amount, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='noise')
+
+    def uniform(self, low: float = 0.0, high: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.uniform(low=low, high=high, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='uni')
+
+    def normal(self, mu: float = 0.0, sigma: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.normal(loc=mu, scale=sigma, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='norm')
+
+    def lognormal(self, mu: float = 0.0, sigma: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.lognormal(mean=mu, sigma=sigma, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='lnorm')
+
+    def exponential(self, scale: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.exponential(scale=scale)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='exp')
+
+    def poisson(self, lam: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.poisson(lam=lam, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='pois')
+
+    def geometric(self, p: float = 0.5, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.geometric(p=p, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='geom')
+
+    def binomial(self, p: float = 0.5, hidden: bool = False, name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.binomial(n=1, p=p, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='bin')
+
+    def integers(self,
+                 low: int = 0,
+                 high: int = 1,
+                 endpoint: bool = True,
+                 hidden: bool = False,
+                 name: Optional[str] = None) -> Node:
+        # refer to: https://numpy.org/doc/1.21/reference/random/generated/numpy.random.Generator.integers.html
+        if isinstance(self._rng, np.random.Generator):
+            func = lambda: self._rng.integers(low=low, high=high, endpoint=endpoint, size=self._size)
+        elif endpoint:
+            func = lambda: np.random.random_integers(low, high, size=self._size)
+        else:
+            func = lambda: np.random.randint(low, high, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='int')
+
+    def choice(self,
+               categories: list,
+               replace: bool = True,
+               p: Optional[list] = None,
+               hidden: bool = False,
+               name: Optional[str] = None) -> Node:
+        func = lambda: self._rng.choice(a=categories, replace=replace, p=p, size=self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='cat')
+
+    def custom(self,
+               distribution: Callable[[int], np.ndarray],
+               hidden: bool = False,
+               name: Optional[str] = None) -> Node:
+        # check that the distribution signature matches the expected one (i.e., f(int) -> array)
+        signature = inspect.signature(distribution).parameters.keys()
+        assert len(signature) == 1, f"Custom distributions should match signature f(size: int) -> np.ndarray"
+        func = lambda: distribution(self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist=None)
+
+    def descendant(self,
+                   function: Union[Variable, Callable],
+                   parents: Optional[List[Union[str, Node]]] = None,
+                   name: Optional[str] = None,
+                   hidden: bool = False) -> Node:
+        if isinstance(function, Variable):
             assert parents is None, f"Derived variables must have no parents, please use 'parents=None'"
-            return self._add_derived(var=function, name=name, hidden=hidden)
+            return self._add_variable_descendant(var=function, name=name, hidden=hidden)
         elif isinstance(function, Callable):
-            assert len(kwargs) == 0, f"Custom variables must have no additional arguments, please use no kwargs"
-            return self._add_custom(func=function, name=name, hidden=hidden, parents=parents)
+            return self._add_function_descendant(func=function, name=name, hidden=hidden, parents=parents)
         else:
             raise TypeError(f"Unsupported function type '{type(function).__name__}'")
 
-    def _add_source(self, dist: str, name: Optional[str], hidden: bool, **kwargs) -> Node:
-        if dist == 'noise':
-            # for noise distributions, check that a single parameter is passed (i.e., amount)
-            amount = kwargs.get('amount')
-            assert amount is not None, f"Noise distributions admit a single parameter ('amount')"
-            assert len(kwargs) == 1, f"Noise distributions admit a single parameter ('amount')"
-            dist = lambda: self.rng.normal(loc=0.0, scale=kwargs['amount'], size=SIZE.value)
-        elif dist == 'custom':
-            # for custom distributions, check that a single parameter is passed (i.e., distribution)
-            # the distribution must be a function whose signature matches the expected one (i.e., f(int) -> array)
-            dist = kwargs.get('distribution')
-            assert dist is not None, f"Custom distributions admit a single parameter ('distribution')"
-            assert len(kwargs) == 1, f"Custom distributions admit a single parameter ('distribution')"
-            signature = inspect.signature(dist).parameters.keys()
-            assert len(signature) == 1, f"Custom distributions should match signature f(size: int) -> np.ndarray"
-        else:
-            # otherwise retrieve the distribution from the random number generator and build the function accordingly
-            assert hasattr(self.rng, dist), f"Unknown source distribution '{dist}'"
-            function = getattr(self.rng, dist)
-            dist = lambda: function(size=SIZE.value, **kwargs)
-        return self._check_node_and_append(func=dist, name=name, hidden=hidden, parents=set())
-
-    def _add_derived(self, var: Variable, name: Optional[str], hidden: bool) -> Node:
+    def _add_variable_descendant(self, var: Variable, name: Optional[str], hidden: bool) -> Node:
         if isinstance(var, Intermediate):
             def _retrieve_parents(v: Intermediate) -> Set[Node]:
                 output = set()
@@ -92,7 +142,7 @@ class Generator:
                         output.update(_retrieve_parents(p))
                     elif isinstance(p, Node):
                         output.add(p)
-                    elif p is not SIZE:
+                    else:
                         raise TypeError(f"Unknown variable type '{type(v).__name__}'")
                 return output
 
@@ -104,11 +154,11 @@ class Generator:
         else:
             raise TypeError(f"Unknown variable type '{type(var).__name__}'")
 
-    def _add_custom(self,
-                    func: Callable[..., np.ndarray],
-                    name: Optional[str],
-                    hidden: bool,
-                    parents: Optional[List[Union[str, Node]]]) -> Node:
+    def _add_function_descendant(self,
+                                 func: Callable[..., np.ndarray],
+                                 name: Optional[str],
+                                 hidden: bool,
+                                 parents: Optional[List[Union[str, Node]]]) -> Node:
         signature = inspect.signature(func).parameters.keys()
         # if no parent is passed, their names are assumed by the function input parameters, otherwise check consistency
         if parents is None:
@@ -124,17 +174,20 @@ class Generator:
             inputs.append(par)
         # eventually build the node
         function = lambda: func(*[inp.value for inp in inputs])
-        return self._check_node_and_append(func=function, name=name, hidden=hidden, parents=set(inputs))
+        return self._check_node_and_append(func=function, name=name, hidden=hidden, parents=set(inputs), dist=None)
 
     def _check_node_and_append(self,
                                func: Callable[..., np.ndarray],
                                name: Optional[str],
                                parents: Set[Node],
-                               hidden: Optional[bool]) -> Node:
+                               hidden: Optional[bool],
+                               dist: Optional[str] = None) -> Node:
         # assign default name if no name is passed, otherwise check for name conflicts with existing variables
         if name is None:
-            self._counter += 1
-            name = f'v{self._counter}'
+            prefix = 'var' if dist is None else dist
+            self._counters[prefix] = self._counters.get(prefix, 0)
+            self._counters[prefix] += 1
+            name = f'{prefix}_{self._counters[prefix]}'
         else:
             assert name not in self._nodes, f"Name '{name}' has already been assigned to a variable"
         # check that parents belong to this generator
@@ -152,21 +205,36 @@ class Generator:
 
     def generate(self, num: int = 1, hidden: bool = False) -> pd.DataFrame:
         data = pd.DataFrame()
-        SIZE.set(num)
+        assert self._size is None, "Unexpected behaviour, internal variable '_size' should be None but it is not"
+        self._size = num
         for node in nx.topological_sort(self._graph):
             data[node] = self._nodes[node].sample()
         for node in self._nodes.values():
             node.clear()
-        SIZE.clear()
+        self._size = None
         return data if hidden else data[[n.name for n in self.visible]]
 
-    def visualize(self):
+    def visualize(self,
+                  fig_size: Tuple[int, int] = (10, 6),
+                  node_size: float = 10,
+                  arrow_size: float = 8,
+                  edge_width: float = 1):
         g = self._graph.copy()
         for layer, nodes in enumerate(nx.topological_generations(g)):
             for node in nodes:
                 g.nodes[node]['layer'] = layer
         pos = nx.multipartite_layout(g, subset_key='layer')
-        color = ['#3466AA' if n.visible else '#C0C0C0' for n in self.nodes]
-        nx.draw(g, pos=pos, node_color=color, with_labels=True, arrows=True)
+        plt.figure(figsize=fig_size)
+        nx.draw(
+            g,
+            pos=pos,
+            node_color=['#3466AA' if n.visible else '#C0C0C0' for n in self.nodes],
+            node_size=node_size * 100,
+            linewidths=edge_width,
+            arrowsize=arrow_size,
+            width=edge_width,
+            with_labels=True,
+            arrows=True
+        )
         plt.gca().collections[0].set_edgecolor("#000000")
         plt.show()
