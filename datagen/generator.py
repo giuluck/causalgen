@@ -1,5 +1,5 @@
 import inspect
-from typing import Callable, Optional, Dict, Union, List, Set, Tuple
+from typing import Callable, Optional, Dict, Union, List, Set, Tuple, Any
 
 import networkx as nx
 import numpy as np
@@ -51,8 +51,9 @@ class Generator:
     def sources(self) -> List[Node]:
         return [v for v in self._nodes.values() if v.source]
 
-    def reset_seed(self, seed: Union[None, int, np.random.Generator]):
+    def reset_seed(self, seed: Union[None, int, np.random.Generator]) -> Any:
         self._rng = Generator._get_rng(seed)
+        return self
 
     def noise(self, amount: float = 1.0, hidden: bool = True, name: Optional[str] = None) -> Node:
         func = lambda: self._rng.normal(loc=0.0, scale=amount, size=self._size)
@@ -71,7 +72,7 @@ class Generator:
         return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='lnorm')
 
     def exponential(self, scale: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
-        func = lambda: self._rng.exponential(scale=scale)
+        func = lambda: self._rng.exponential(scale=scale, size=self._size)
         return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='exp')
 
     def poisson(self, lam: float = 1.0, hidden: bool = False, name: Optional[str] = None) -> Node:
@@ -169,9 +170,11 @@ class Generator:
         inputs = []
         for par in parents:
             if isinstance(par, str):
-                par = self._nodes.get(par)
-                assert par is not None, f"Unknown parent '{par.name}'"
-            inputs.append(par)
+                parent = self._nodes.get(par)
+                assert parent is not None, f"Unknown parent '{par}'"
+            else:
+                parent = par
+            inputs.append(parent)
         # eventually build the node
         function = lambda: func(*[inp.value for inp in inputs])
         return self._check_node_and_append(func=function, name=name, hidden=hidden, parents=set(inputs), dist=None)

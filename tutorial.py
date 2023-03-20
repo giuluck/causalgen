@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from datagen import Generator
@@ -13,10 +14,10 @@ if __name__ == '__main__':
     C = dg.integers(low=0, high=10, endpoint=False, hidden=True, name='c')
 
     # create descendants
-    dg.descendant(lambda a, b, c: a * b + c, name='d1')
-    dg.descendant(lambda x, y, z: x * y + z, parents=[A, B, C], name='d2')
-    dg.descendant(lambda x, y, z: x * y + z, parents=['a', 'b', 'c'], name='d3')
-    D4 = dg.descendant(A * B + C, name='d4')
+    dg.descendant(lambda a, b, c: np.sin(a) + np.cos(b) - 3 * c, name='d1')
+    dg.descendant(lambda x, y, z: np.sin(x) + np.cos(y) - 3 * z, parents=[A, B, C], name='d2')
+    dg.descendant(lambda x, y, z: np.sin(x) + np.cos(y) - 3 * z, parents=['a', 'b', 'c'], name='d3')
+    D4 = dg.descendant(np.sin(A) + np.cos(B) - 3 * C, name='d4')
 
     # introduce noise
     dg.descendant(lambda d1: d1 + dg.random.normal(scale=0.1), name='e1')

@@ -23,38 +23,77 @@ class Variable(ABC):
     def _binary_operation(self, other: Any, operator: Callable) -> Any:
         pass
 
+    @abstractmethod
+    def _right_binary_operation(self, other: Any, operator: Callable) -> Any:
+        pass
+
+    @abstractmethod
+    def square(self):
+        # allows to handle np.square as a unary operation
+        pass
+
     def __add__(self, other):
         return self._binary_operation(other, operator=np.add)
+
+    def __radd__(self, other):
+        return self.__add__(other)
 
     def __sub__(self, other):
         return self._binary_operation(other, operator=np.subtract)
 
+    def __rsub__(self, other):
+        return self._right_binary_operation(other, operator=np.subtract)
+
     def __mul__(self, other):
+        # allows to handle np.square as a unary operation
+        if other is self:
+            return self.square()
         return self._binary_operation(other, operator=np.multiply)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
     def __truediv__(self, other):
         return self._binary_operation(other, operator=np.true_divide)
 
+    def __rtruediv__(self, other):
+        return self._right_binary_operation(other, operator=np.true_divide)
+
     def __floordiv__(self, other):
         return self._binary_operation(other, operator=np.floor_divide)
+
+    def __rfloordiv__(self, other):
+        return self._right_binary_operation(other, operator=np.floor_divide)
 
     def __pow__(self, power):
         return self._binary_operation(power, operator=np.power)
 
+    def __rpow__(self, other):
+        return self._right_binary_operation(other, operator=np.power)
+
     def __mod__(self, other):
         return self._binary_operation(other, operator=np.mod)
 
-    def __matmul__(self, other):
-        return self._binary_operation(other, operator=np.matmul)
+    def __rmod__(self, other):
+        return self._right_binary_operation(other, operator=np.mod)
 
     def __and__(self, other):
         return self._binary_operation(other, operator=np.bitwise_and)
 
+    def __rand__(self, other):
+        return self.__and__(other)
+
     def __or__(self, other):
         return self._binary_operation(other, operator=np.bitwise_or)
 
+    def __ror__(self, other):
+        return self.__or__(other)
+
     def __xor__(self, other):
         return self._binary_operation(other, operator=np.bitwise_xor)
+
+    def __rxor__(self, other):
+        return self.__xor__(other)
 
     def __invert__(self):
         return self._unary_operation(operator=np.invert)
@@ -119,6 +158,9 @@ class Variable(ABC):
     def exp2(self):
         return self._unary_operation(operator=np.exp2)
 
+    def expm1(self):
+        return self._unary_operation(operator=np.expm1)
+
     def log(self):
         return self._unary_operation(operator=np.log)
 
@@ -131,14 +173,8 @@ class Variable(ABC):
     def log1p(self):
         return self._unary_operation(operator=np.log1p)
 
-    def square(self):
-        return self._unary_operation(operator=np.square)
-
     def cbrt(self):
         return self._unary_operation(operator=np.cbrt)
-
-    def sign(self):
-        return self._unary_operation(operator=np.sign)
 
 
 class Intermediate(Variable):
@@ -148,15 +184,26 @@ class Intermediate(Variable):
         self._unary_ops: List[Callable[[np.ndarray], np.ndarray]] = []
 
     def _unary_operation(self, operator: Callable) -> Variable:
-        self._unary_ops.append(lambda s: operator(s.value))
+        self._unary_ops.append(lambda x: operator(x))
         return self
 
     def _binary_operation(self, other: Any, operator: Callable) -> Any:
         if isinstance(other, Variable):
             return Intermediate(op=lambda s, o: operator(s.value, o.value), inputs=[self, other])
         else:
-            self._unary_ops.append(lambda s: operator(s.value, other))
+            self._unary_ops.append(lambda x: operator(x, other))
             return self
+
+    def _right_binary_operation(self, other: Any, operator: Callable) -> Any:
+        if isinstance(other, Variable):
+            return Intermediate(op=lambda s, o: operator(o.value, s.value), inputs=[self, other])
+        else:
+            self._unary_ops.append(lambda x: operator(other, x))
+            return self
+
+    def square(self):
+        self._unary_ops.append(lambda x: x * x)
+        return self
 
     @property
     def value(self) -> np.ndarray:
@@ -192,6 +239,15 @@ class Node(Variable):
             return Intermediate(op=lambda s, o: operator(s.value, o.value), inputs=[self, other])
         else:
             return Intermediate(op=lambda s: operator(s.value, other), inputs=[self])
+
+    def _right_binary_operation(self, other: Any, operator: Callable) -> Any:
+        if isinstance(other, Variable):
+            return Intermediate(op=lambda s, o: operator(o.value, s.value), inputs=[self, other])
+        else:
+            return Intermediate(op=lambda s: operator(other, s.value), inputs=[self])
+
+    def square(self):
+        return Intermediate(op=lambda s: s.value * s.value, inputs=[self])
 
     @property
     def value(self) -> np.ndarray:
