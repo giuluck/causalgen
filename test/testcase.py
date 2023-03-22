@@ -6,7 +6,7 @@ import numpy as np
 from datagen import Generator
 from datagen.variables import Intermediate, Node
 
-size = 1000
+size = 10
 
 rng = np.random.default_rng(0)
 
@@ -246,36 +246,53 @@ class TestCase(unittest.TestCase):
 
     # noinspection PyPep8Naming
     def test_descendants(self):
-        dg = Generator()
+        dg, rand = Generator(seed=0), np.random.default_rng(0)
         # create sources
         A = dg.normal(hidden=False, name='a')
+        vA = rand.normal(size=size)
         self.assertIs(A.hidden, False, f"Node A should be visible")
         self.assertIs(A.visible, True, f"Node A should be visible")
         B = dg.integers(hidden=True, name='b')
+        vB = rand.integers(0, 1, endpoint=True, size=size)
         self.assertIs(B.hidden, True, f"Node B should be hidden")
         self.assertIs(B.visible, False, f"Node B should be hidden")
         Ext = Node(generator=None, func=lambda: np.empty(1), parents=set(), hidden=False, name='ext')
         # create correct descendants
-        C = dg.descendant(lambda a, b: a + b, hidden=False, name='c')
+        C = dg.descendant(lambda a, b: a + b, noise=None, hidden=False, name='c')
         self.assertIs(C.hidden, False, f"Node C should be visible")
         self.assertIs(C.visible, True, f"Node C should be visible")
         self.assertEqual(C.name, 'c', f"Node was created with wrong name")
         self.assertIn(C, dg.nodes, f"Node was not inserted in generator structure")
-        D = dg.descendant(lambda x, y: x + y, hidden=True, parents=[A, B], name='d')
+        D = dg.descendant(lambda x, y: x + y, noise=None, hidden=True, parents=[A, B], name='d')
         self.assertIs(D.hidden, True, f"Node D should be hidden")
         self.assertIs(D.visible, False, f"Node D should be hidden")
         self.assertEqual(D.name, 'd', f"Node was created with wrong name")
         self.assertIn(D, dg.nodes, f"Node was not inserted in generator structure")
-        Var_1 = dg.descendant(lambda x, y: x + y, hidden=False, parents=['a', 'b'])
+        Var_1 = dg.descendant(lambda x, y: x + y, noise=0.1, hidden=False, parents=['a', 'b'])
         self.assertIs(Var_1.hidden, False, f"Node Var_1 should be visible")
         self.assertIs(Var_1.visible, True, f"Node Var_1 should be visible")
         self.assertEqual(Var_1.name, 'var_1', f"Node was created with wrong name")
         self.assertIn(Var_1, dg.nodes, f"Node was not inserted in generator structure")
-        Var_2 = dg.descendant(A + B, hidden=True)
+        Var_2 = dg.descendant(A + B, noise=None, hidden=True)
         self.assertIs(Var_2.hidden, True, f"Node Var_2 should be hidden")
         self.assertIs(Var_2.visible, False, f"Node Var_2 should be hidden")
         self.assertEqual(Var_2.name, 'var_2', f"Node was created with wrong name")
         self.assertIn(Var_2, dg.nodes, f"Node was not inserted in generator structure")
+        Var_3 = dg.descendant(A + B, noise=0.1, hidden=False)
+        self.assertIs(Var_3.hidden, False, f"Node Var_3 should be visible")
+        self.assertIs(Var_3.visible, True, f"Node Var_3 should be visible")
+        self.assertEqual(Var_3.name, 'var_3', f"Node was created with wrong name")
+        self.assertIn(Var_3, dg.nodes, f"Node was not inserted in generator structure")
+        # check generated values (and noises)
+        df = dg.generate(num=size, hidden=True)
+        n1, n3 = rand.normal(scale=0.1, size=size), rand.normal(scale=0.1, size=size)
+        self.assertListEqual(list(df['a']), list(vA), f"Wrong samples from 'a'")
+        self.assertListEqual(list(df['b']), list(vB), f"Wrong samples from 'b'")
+        self.assertListEqual(list(df['c']), list(vA + vB), f"Wrong operation from 'c'")
+        self.assertListEqual(list(df['d']), list(vA + vB), f"Wrong operation from source 'd'")
+        self.assertListEqual(list(df['var_1']), list(vA + vB + n1), f"Wrong operation from 'var_1'")
+        self.assertListEqual(list(df['var_2']), list(vA + vB), f"Wrong operation from 'var_2'")
+        self.assertListEqual(list(df['var_3']), list(vA + vB + n3), f"Wrong operation from 'var_3'")
         # create wrong descendants
         with self.assertRaises(AssertionError):
             dg.descendant(lambda a, b: a + b, name='c')

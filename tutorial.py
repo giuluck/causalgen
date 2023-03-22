@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     # additionally, you can create hidden variables using the 'hidden' parameter
     # nodes marked as hidden should represent all those variables that cannot be measured in a real-world scenario
-    # these nodes will be displayed with a different color, and optionally from the generated dataframe
+    # these nodes will be displayed with a different color, and optionally removed from the generated dataframe
     C = dg.integers(low=0, high=10, endpoint=False, hidden=True, name='c')
 
     # once you have build your source variables, you can add new descendant variables using the 'descendant' method
@@ -45,15 +45,18 @@ if __name__ == '__main__':
     D4 = dg.descendant(np.sin(A) + np.cos(B) - 3 * C, name='d4')
 
     # finally, another important aspect of data generation is the presence of noise
-    # when adding descendant nodes, you can introduce noise as part of the node's function:
-    #   - if you create the node by passing a user-defined function, you can add noise by leveraging the internal
-    #     random number generator which is stored in the 'random' field; please be careful to use the internal rng
-    #     instead of other random number generators (or the np.random package) in order to get reproducible results
-    #   - if you create the node via explicit variable's operations, you can simply create a new source within the
-    #     operation itself; in this case, the 'noise' method is very useful to add noise, but differently from the
-    #     previous methodology of introducing noise, here the resulting noise vector will be stored as a (hidden by
-    #     default) variable in the generator instance -- see the 'noise_1' column in the generated dataframe
-    dg.descendant(lambda d1: d1 + 0.1 * dg.random.normal(), name='e1')
+    # when adding descendant nodes, you can introduce noise as part of the node's function in three ways:
+    #   1. you can use the 'noise' parameter in the 'descendant' method in order to add additive gaussian noise of the
+    #      given amount (this is usually enough, but if your noise should be either non-gaussian or non-additive you
+    #      will have to leverage one of the other two methods)
+    #   2. if you create the node by passing a user-defined function, you can add noise using the internal random
+    #      number generator which is stored in the 'random' field; please be careful to use the internal rng instead of
+    #      other random number generators (or the np.random package) in order to get reproducible results
+    #   3. if you create the node via explicit variable's operations, you can simply create a new source within the
+    #      operation itself; this is equivalent to adding a new node and then use it within the equation, hence the
+    #      resulting object will appear both in visualization and in the generated dataframe (see the 'noise_1' column)
+    dg.descendant(lambda d1: d1, noise=0.1, name='e1')
+    dg.descendant(lambda d2: d2 + 0.1 * dg.random.normal(), name='e2')
     dg.descendant(D4 + 0.1 * dg.noise(), name='e4')
 
     # now that you have built the causal graph, you can sample some instances using the 'generate' method

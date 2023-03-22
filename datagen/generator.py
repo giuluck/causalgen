@@ -332,6 +332,7 @@ class Generator:
     def descendant(self,
                    function: Union[Variable, Callable[..., np.ndarray]],
                    parents: Optional[List[Union[str, Node]]] = None,
+                   noise: Optional[float] = None,
                    name: Optional[str] = None,
                    hidden: bool = False) -> Node:
         """Creates a new descendant node.
@@ -349,6 +350,9 @@ class Generator:
             If the given function is not a Callable object but a Variable object, which results from a series of
             Variable operations, this parameter should not be used (i.e., its value must be None).
 
+        :param noise:
+            The amount of (additive) gaussian noise, or None for no noise.
+
         :param hidden:
             Whether the source node should be hidden in the causal graph or not.
 
@@ -360,14 +364,18 @@ class Generator:
         """
         if isinstance(function, Variable):
             assert parents is None, f"Derived variables must have no parents, please use 'parents=None'"
-            return self._add_variable_descendant(var=function, name=name, hidden=hidden)
+            return self._add_var_descendant(var=function, name=name, noise=noise, hidden=hidden)
         elif isinstance(function, Callable):
-            return self._add_function_descendant(func=function, name=name, hidden=hidden, parents=parents)
+            return self._add_func_descendant(func=function, name=name, noise=noise, hidden=hidden, parents=parents)
         else:
             raise TypeError(f"Unsupported function type '{type(function).__name__}'")
 
-    def _add_variable_descendant(self, var: Variable, name: Optional[str], hidden: bool) -> Node:
-        if isinstance(var, Intermediate):
+    def _add_var_descendant(self, var: Variable, noise: Optional[float], name: Optional[str], hidden: bool) -> Node:
+        # if a node is passed simply use it as parents, otherwise retrieve all the parents from intermediate operations
+        if isinstance(var, Node):
+            # otherwise, the new node is simply an identity function from the previous one
+            parents = {var}
+        elif isinstance(var, Intermediate):
             def _retrieve_parents(v: Intermediate) -> Set[Node]:
                 output = set()
                 for p in v.parents:
@@ -380,18 +388,22 @@ class Generator:
                 return output
 
             parents = _retrieve_parents(var)
-            return self._check_node_and_append(func=lambda: var.value, parents=parents, hidden=hidden, name=name)
-        elif isinstance(var, Node):
-            # otherwise, the new node is simply an identity function from the previous one
-            return self._check_node_and_append(func=lambda: var.value, name=name, hidden=hidden, parents={var})
         else:
             raise TypeError(f"Unknown variable type '{type(var).__name__}'")
+        # the function is computed as an identity function of the given variable value, plus noise if necessary
+        if noise is None:
+            function = lambda: var.value
+        else:
+            function = lambda: var.value + self._rng.normal(scale=noise, size=self._size)
+        # eventually build and append the node
+        return self._check_node_and_append(func=function, parents=parents, hidden=hidden, name=name)
 
-    def _add_function_descendant(self,
-                                 func: Callable[..., np.ndarray],
-                                 name: Optional[str],
-                                 hidden: bool,
-                                 parents: Optional[List[Union[str, Node]]]) -> Node:
+    def _add_func_descendant(self,
+                             func: Callable[..., np.ndarray],
+                             noise: Optional[float],
+                             name: Optional[str],
+                             hidden: bool,
+                             parents: Optional[List[Union[str, Node]]]) -> Node:
         signature = inspect.signature(func).parameters.keys()
         # if no parent is passed, their names are assumed by the function input parameters, otherwise check consistency
         if parents is None:
@@ -407,8 +419,12 @@ class Generator:
             else:
                 parent = par
             inputs.append(parent)
-        # eventually build the node
-        function = lambda: func(*[inp.value for inp in inputs])
+        # the function is computed by passing the parents values as inputs, plus noise if necessary
+        if noise is None:
+            function = lambda: func(*[inp.value for inp in inputs])
+        else:
+            function = lambda: func(*[inp.value for inp in inputs]) + self._rng.normal(scale=noise, size=self._size)
+        # eventually build and append the node
         return self._check_node_and_append(func=function, name=name, hidden=hidden, parents=set(inputs), dist=None)
 
     def _check_node_and_append(self,

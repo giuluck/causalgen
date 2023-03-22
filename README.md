@@ -19,7 +19,9 @@ The seed parameter controls the random number operations of the generator, it ca
 ### **2. Add Source Variables**
 
 Once you have your generator, you can add your random variables. 
-Generator objects already provide some random distributions, which you can use to build a new variable each variable has a name when a new variable is added, the generator automatically appends it inside its data structure and returns it.
+Generator objects already provide some random distributions, which you can use to build a new variable.
+When a new variable is added, the generator automatically appends it inside its data structure and returns it.
+Moreover, each variable must have a unique name within the graph.
 ```python
 A = dg.normal(mu=0, sigma=1, name='a')
 ```
@@ -36,7 +38,7 @@ B = dg.custom(lambda s: dg.random.weibull(a=1, size=s), name='b')
 
 Additionally, you can create hidden variables using the ```hidden``` parameter.
 Nodes marked as hidden should represent all those variables that cannot be measured in a real-world scenario.
-These nodes will be displayed with a different color, and optionally from the generated dataframe.
+These nodes will be displayed with a different color, and optionally removed from the generated dataframe.
 ```python
 C = dg.integers(low=0, high=10, endpoint=False, hidden=True, name='c')
 ```
@@ -50,7 +52,7 @@ This method works similarly to the previous ones, but you can pass the input fun
 dg.descendant(lambda a, b, c: np.sin(a) + np.cos(b) - 3 * c, name='d1')
 ```
 
-2. you can pass a function with a given number of parameters and then use the 'parents' argument to pass an (ordered) list of node instances that are already in the generator whose values will be used as inputs
+2. you can pass a function with a given number of parameters and then use the 'parents' argument to pass an (ordered) list of node instances that are already in the generator and whose values will be used as inputs
 ```python
 dg.descendant(lambda x, y, z: np.sin(x) + np.cos(y) - 3 * z, parents=[A, B, C], name='d2')
 ```
@@ -69,12 +71,20 @@ D4 = dg.descendant(np.sin(A) + np.cos(B) - 3 * C, name='d4')
 
 Another important aspect of data generation is the presence of noise.
 When adding descendant nodes, you can introduce noise as part of the node's function:
-* if you create the node by passing a user-defined function, you can add noise by leveraging the internal random number generator which is stored in the ```random``` field; please be careful to use the internal rng instead of other random number generators (or the ```np.random``` package) in order to get reproducible results
+1. you can use the 'noise' parameter in the 'descendant' method in order to add additive gaussian noise of the given amount
 ```python
-dg.descendant(lambda d1: d1 + 0.1 * dg.random.normal(), name='e1')
+dg.descendant(lambda d1: d1, noise=0.1, name='e1')
+```
+> _Note: this is usually enough, but if your noise should be either non-gaussian or non-additive you will have to leverage one of the other two methods_
+
+2. if you create the node by passing a user-defined function, you can add noise using the internal random number generator which is stored in the ```random``` field;
+please be careful to use the internal rng instead of other random number generators (or the ```np.random``` package) in order to get reproducible results
+```python
+dg.descendant(lambda d2: d2 + 0.1 * dg.random.normal(), name='e2')
 ```
 
-* if you create the node via explicit variable's operations, you can simply create a new source within the operation itself; in this case, the ```noise``` method is very useful to add noise, but differently from the previous methodology of introducing noise, here the resulting noise vector will be stored as a (hidden by default) variable in the generator instance
+3. if you create the node via explicit variable's operations, you can simply create a new source within the operation itself;
+this is equivalent to adding a new node and then use it within the equation, hence the resulting object will appear both in visualization and in the generated dataframe
 ```python
 dg.descendant(D4 + 0.1 * dg.noise(), name='e4')
 ```
@@ -87,7 +97,7 @@ By default, the method returns a dataframe with the given number of instances an
 df = dg.generate(num=10)
 ```
 
-If you want to have access to hidden variables as well, you just need to use the ```hidden``` parameter
+If you want to have access to hidden variables as well, you just need to use the ```hidden``` parameter.
 ```python
 df = dg.generate(num=10, hidden=True)
 ```
