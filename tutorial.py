@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from datagen import Generator
+from causalgen import Generator
 
-pd.set_option('precision', 2)
+pd.options.display.precision = 2
 
 if __name__ == '__main__':
     # as a first step, we need to create a Generator instance

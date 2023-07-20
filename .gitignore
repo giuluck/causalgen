@@ -1,5 +1,9 @@
+__pycache__
 .DS_Store
 .idea
+.eggs
 venv
 temp
-__pycache__
+dist
+build
+causalgen.egg-info

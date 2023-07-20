@@ -3,8 +3,8 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from datagen import Generator
-from datagen.variables import Intermediate, Node
+from causalgen import Generator
+from causalgen.variables import Intermediate, Node
 
 size = 10
 

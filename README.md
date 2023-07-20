@@ -1,12 +1,13 @@
-## DATAGEN: A Causal Graph Based Data Generation Utility
+## CAUSALGEN: A Causal-based Utility for Data Generation
 
-_Datagen_ is a utility that allows to generate data which is based on a certain causal graph structure.
+_Causalgen_ is a utility that allows to generate data which is based on a certain causal graph structure.
 
 ### **1. Build A New Generator**
 
 In order to generate your random data, you first need to create a Generator instance as:
+
 ```python
-from datagen import Generator
+from causalgen import Generator
 
 dg = Generator(seed=42)
 ```
