@@ -46,7 +46,7 @@ C = dg.integers(low=0, high=10, endpoint=False, hidden=True, name='c')
 
 ### **3. Add Child Variables**
 
-Once you have build your source variables, you can add new descendant variables using the ```descendant``` method.
+Once you have built your source variables, you can add new descendant variables using the ```descendant``` method.
 This method works similarly to the previous ones, but you can pass the input function in four different ways:
 1. you can pass a custom function whose input parameters match the name of nodes already in the generator, in which case the generator automatically retrieves the parent nodes and build a new child node
 ```python
