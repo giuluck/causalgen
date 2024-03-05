@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 [project]
 name = 'causalgen'
 version = '0.1.1'
-requires-python = '>=3.10'
+requires-python = '>=3.8'
 dependencies = [
     'matplotlib>=3.7',
     'networkx>=2.7',
