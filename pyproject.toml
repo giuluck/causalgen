@@ -1,14 +1,14 @@
-# test using "pytest"
-# build using "hatch build"
-# publish using "hatch publish"
+# test using 'pytest'
+# build using 'hatch build'
+# publish using 'hatch publish'
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ['hatchling']
+build-backend = 'hatchling.build'
 
 [project]
 name = 'causalgen'
-version = '0.1.1'
+version = '0.1.2'
 requires-python = '>=3.8'
 dependencies = [
     'matplotlib>=3.7',
@@ -17,7 +17,7 @@ dependencies = [
     'pandas>=1.4'
 ]
 description = 'Causalgen: a causal-based utility for data generation'
-readme = { file = "README.md", content-type = "text/markdown" }
+readme = { file = 'README.md', content-type = 'text/markdown' }
 authors = [
     { name = 'Luca Giuliani', email = 'luca.giuliani13@unibo.it' },
     { name = 'University of Bologna - DISI' }
@@ -25,10 +25,16 @@ authors = [
 maintainers = [
     { name = 'Luca Giuliani', email = 'luca.giuliani13@unibo.it' }
 ]
-license = { file = "LICENSE" }
+license = 'MIT'
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'License :: OSI Approved :: MIT License',
+    'Programming Language :: Python',
+    'Operating System :: OS Independent'
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["causalgen"]
+packages = ['causalgen']
 
 [project.urls]
-Repository = "https://github.com/giuluck/causalgen/"
+Repository = 'https://github.com/giuluck/causalgen/'
