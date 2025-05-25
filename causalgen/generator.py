@@ -1,5 +1,5 @@
 import inspect
-from typing import Callable, Optional, Dict, Union, List, Set, Tuple, Any
+from typing import Callable, Optional, Dict, Union, List, Set, Tuple, Any, Iterable
 
 import networkx as nx
 import numpy as np
@@ -87,6 +87,24 @@ class Generator:
         """
         self._rng = Generator._get_rng(seed)
         return self
+
+    def constant(self, value: float = 0.0, hidden: bool = True, name: Optional[str] = None) -> Node:
+        """Creates a new source node with constant value.
+
+        :param value:
+            The constant value to be set.
+
+        :param hidden:
+            Whether the source node should be hidden in the causal graph or not.
+
+        :param name:
+            The name of the node. If None, name 'noise_{i}' is assigned.
+
+        :return:
+            The created source node.
+        """
+        func = lambda: np.array([value] * self._size)
+        return self._check_node_and_append(func=func, hidden=hidden, name=name, parents=set(), dist='const')
 
     def noise(self, amount: float = 1.0, hidden: bool = True, name: Optional[str] = None) -> Node:
         """Creates a new source node which samples from a zero-mean normal distribution.
@@ -478,21 +496,34 @@ class Generator:
             node.clear()
         # and clear the size internal value as well
         self._size = None
-        # eventually return all the data or the subset of visible data according to the hidden parameter
-        return data if hidden else data[[n.name for n in self.visible]]
+        # eventually return all the (ordered) data or the subset of visible data according to the hidden parameter
+        return data[[n.name for n in (self.nodes if hidden else self.visible)]]
 
     def visualize(self,
+                  pos: Union[str, List[Iterable[Optional[str]]], Dict[str, Any]] = 'lp',
                   fig_size: Tuple[int, int] = (16, 9),
-                  node_size: float = 10,
-                  arrow_size: float = 8,
+                  font_size: float = 16,
+                  arrow_pad: float = 10000,
+                  arrow_size: float = 50,
                   edge_width: float = 1):
         """Visualizes the underlying casual graph.
+
+        :param pos:
+            Defines the position of the nodes in the visualization.
+            If a dictionary is passed, it should represent the absolute position of each node indexed by name.
+            If a list is passed, it should contain one sub-list per horizontal layer, and the ordered names of each
+            node that appear in that layer, or None for an empty placeholder.
+            If the string 'sp' is passed, nodes are arranged in layers using the shortest path algorithm from sources.
+            If the string 'lp' is passed, nodes are arranged in layers using the longest path algorithm from sources.
 
         :param fig_size:
             The figsize parameter passed to plt.figure().
 
-        :param node_size:
-            The size of each node.
+        :param font_size:
+            The size of the font.
+
+        :param arrow_pad:
+            The padding of each arrow.
 
         :param arrow_size:
             The size of each arrow.
@@ -500,24 +531,48 @@ class Generator:
         :param edge_width:
             The width of each edge (and node borders).
         """
-        # use a copy of the graph to add a new 'layer' key which is used to correctly visualize DAGs
-        g = self._graph.copy()
-        for layer, nodes in enumerate(nx.topological_generations(g)):
-            for node in nodes:
-                g.nodes[node]['layer'] = layer
-        pos = nx.multipartite_layout(g, subset_key='layer')
-        # plot the resulting graph
-        plt.figure(figsize=fig_size)
-        nx.draw(
-            g,
-            pos=pos,
-            node_color=['#3466AA' if n.visible else '#C0C0C0' for n in self.nodes],
-            node_size=node_size * 100,
-            linewidths=edge_width,
-            arrowsize=arrow_size,
-            width=edge_width,
-            with_labels=True,
-            arrows=True
-        )
-        plt.gca().collections[0].set_edgecolor("#000000")
-        plt.show()
+        # if the position info is a list, create a new graph with nodes added sequentially and with the layers attribute
+        if isinstance(pos, list):
+            layers = pos
+            pos = {}
+            for x, nodes in enumerate(layers):
+                y = [0.5] if len(nodes) == 1 else np.linspace(1, 0, len(nodes), endpoint=True)
+                pos.update({n: (x, y) for n, y in zip(nodes, y) if n is not None})
+        # otherwise, pos can be either a dictionary or a string in ['sp', 'lp']
+        elif not isinstance(pos, dict):
+            gcopy = self._graph.copy()
+            nx.set_node_attributes(gcopy, values=0, name='layer')
+            # noinspection PyTypeChecker
+            sources = [node for node, degree in self._graph.in_degree if degree == 0]
+            if pos == 'sp':
+                # use breadth first search for shortest paths
+                for it, nodes in enumerate(nx.bfs_layers(gcopy, sources=sources)):
+                    for node in nodes:
+                        gcopy.nodes[node]['layer'] = it
+            elif pos == 'lp':
+                # use floyd warshall algorithm to search for longest paths
+                #  - get the indices of the sources
+                #  - get the negative shortest path matrix and select only the paths from the sources
+                #  - get the negative minimum value for each node in the graph and negate it to get the layer
+                nx.set_edge_attributes(gcopy, values=-1, name='weight')
+                sources = set(sources)
+                sources = [i for i, node in enumerate(gcopy.nodes) if node in sources]
+                lp = -nx.floyd_warshall_numpy(gcopy)[sources].min(axis=0)
+                for i, node in enumerate(gcopy.nodes):
+                    gcopy.nodes[node]['layer'] = lp[i]
+            else:
+                raise ValueError(f"Unknown 'pos' value '{pos}'")
+            pos = nx.multipartite_layout(gcopy, subset_key='layer')
+        # eventually draw the graph (draw boxed labels rather than nodes, and draw edges and arrows separately)
+        fig = plt.figure(figsize=fig_size, tight_layout=True)
+        for nodelist, color in [(self.visible, '#73B9EE'), (self.hidden, '#C0C0C0')]:
+            nx.draw_networkx_labels(
+                self._graph.subgraph(nodes=[node.name for node in nodelist]),
+                pos=pos,
+                font_size=font_size,
+                bbox=dict(facecolor=color, edgecolor='black', boxstyle=f'round,pad=1.0'),
+                ax=fig.gca()
+            )
+        nx.draw_networkx_edges(self._graph, pos=pos, node_size=arrow_pad, width=0, arrowsize=arrow_size, ax=fig.gca())
+        nx.draw_networkx_edges(self._graph, pos=pos, node_size=0, arrows=False, ax=fig.gca())
+        fig.show()
