@@ -10,7 +10,7 @@ jobs:
                 # * test on different operative systems
                 # * test minimal versions: python 3.8.0 + lowest full requirements (of direct packages only)
                 # * test latest versions: python 3.x + latest full requirements
-                os: ["windows-2022", "macos-13", "ubuntu-24.04"]
+                os: ["windows-2022", "macos-13", "ubuntu-22.04"]
                 versions: [["3.8.0", "--resolution lowest-direct .[full]"], ["3.x", ".[full]"]]
         runs-on: ${{ matrix.os }}
         steps:
