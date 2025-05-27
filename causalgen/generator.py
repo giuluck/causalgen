@@ -88,7 +88,7 @@ class Generator:
         self._rng = Generator._get_rng(seed)
         return self
 
-    def constant(self, value: float = 0.0, hidden: bool = True, name: Optional[str] = None) -> Node:
+    def constant(self, value: float = 0.0, hidden: bool = False, name: Optional[str] = None) -> Node:
         """Creates a new source node with constant value.
 
         :param value:
@@ -274,7 +274,7 @@ class Generator:
             The upper integer value.
 
         :param endpoint:
-            Whether to include the upper integer value ([low, high]) or not ([low, high[).
+            Whether to include the upper integer value ([low, high]) or not ([low, high]).
 
         :param hidden:
             Whether the source node should be hidden in the causal graph or not.
@@ -446,7 +446,7 @@ class Generator:
         return self._check_node_and_append(func=function, name=name, hidden=hidden, parents=set(inputs), dist=None)
 
     def _check_node_and_append(self,
-                               func: Callable[..., np.ndarray],
+                               func: Callable,
                                name: Optional[str],
                                parents: Set[Node],
                                hidden: Optional[bool],
@@ -502,6 +502,7 @@ class Generator:
     def visualize(self,
                   pos: Union[str, List[Iterable[Optional[str]]], Dict[str, Any]] = 'lp',
                   fig_size: Tuple[int, int] = (16, 9),
+                  padding: Union[float, Tuple[float, float]] = 0.1,
                   font_size: float = 16,
                   arrow_pad: float = 10000,
                   arrow_size: float = 50,
@@ -519,6 +520,9 @@ class Generator:
         :param fig_size:
             The figsize parameter passed to plt.figure().
 
+        :param padding:
+            The amount of padding outside the whole graph, either a float or a tuple (horizontal, vertical).
+
         :param font_size:
             The size of the font.
 
@@ -531,38 +535,39 @@ class Generator:
         :param edge_width:
             The width of each edge (and node borders).
         """
-        # if the position info is a list, create a new graph with nodes added sequentially and with the layers attribute
-        if isinstance(pos, list):
-            layers = pos
-            pos = {}
-            for x, nodes in enumerate(layers):
-                y = [0.5] if len(nodes) == 1 else np.linspace(1, 0, len(nodes), endpoint=True)
-                pos.update({n: (x, y) for n, y in zip(nodes, y) if n is not None})
-        # otherwise, pos can be either a dictionary or a string in ['sp', 'lp']
-        elif not isinstance(pos, dict):
-            gcopy = self._graph.copy()
-            nx.set_node_attributes(gcopy, values=0, name='layer')
+        # if the position is a string, use the respective strategy to layer nodes horizontally into a list of lists
+        if isinstance(pos, str):
             # noinspection PyTypeChecker
             sources = [node for node, degree in self._graph.in_degree if degree == 0]
             if pos == 'sp':
                 # use breadth first search for shortest paths
-                for it, nodes in enumerate(nx.bfs_layers(gcopy, sources=sources)):
-                    for node in nodes:
-                        gcopy.nodes[node]['layer'] = it
+                pos = [sorted(nodes) for nodes in nx.bfs_layers(self._graph, sources=sources)]
             elif pos == 'lp':
                 # use floyd warshall algorithm to search for longest paths
                 #  - get the indices of the sources
                 #  - get the negative shortest path matrix and select only the paths from the sources
                 #  - get the negative minimum value for each node in the graph and negate it to get the layer
+                gcopy = self._graph.copy()
                 nx.set_edge_attributes(gcopy, values=-1, name='weight')
-                sources = set(sources)
                 sources = [i for i, node in enumerate(gcopy.nodes) if node in sources]
                 lp = -nx.floyd_warshall_numpy(gcopy)[sources].min(axis=0)
+                layers = {}
                 for i, node in enumerate(gcopy.nodes):
-                    gcopy.nodes[node]['layer'] = lp[i]
+                    layer = lp[i]
+                    if layer not in layers:
+                        layers[layer] = [node]
+                    else:
+                        layers[layer].append(node)
+                pos = [sorted(nodes) for _, nodes in sorted(layers.items(), key=lambda v: v[0])]
             else:
                 raise ValueError(f"Unknown 'pos' value '{pos}'")
-            pos = nx.multipartite_layout(gcopy, subset_key='layer')
+        # if the position info is a list, build positions by vertically spacing nodes in the same layer
+        if isinstance(pos, list):
+            layers = pos
+            pos = {}
+            for x, nodes in enumerate(layers):
+                y = np.linspace(1, 0, len(nodes) + 2)[1:-1]
+                pos.update({n: (x, y) for n, y in zip(nodes, y) if n is not None})
         # eventually draw the graph (draw boxed labels rather than nodes, and draw edges and arrows separately)
         fig = plt.figure(figsize=fig_size, tight_layout=True)
         for nodelist, color in [(self.visible, '#73B9EE'), (self.hidden, '#C0C0C0')]:
@@ -574,5 +579,15 @@ class Generator:
                 ax=fig.gca()
             )
         nx.draw_networkx_edges(self._graph, pos=pos, node_size=arrow_pad, width=0, arrowsize=arrow_size, ax=fig.gca())
-        nx.draw_networkx_edges(self._graph, pos=pos, node_size=0, arrows=False, ax=fig.gca())
+        nx.draw_networkx_edges(self._graph, pos=pos, node_size=0, width=edge_width, arrows=False, ax=fig.gca())
+        # set axis boundaries and show figure
+        x_pad, y_pad = padding if isinstance(padding, tuple) else (padding, padding)
+        x_pos = [x for x, _ in pos.values()]
+        y_pos = [y for _, y in pos.values()]
+        x_min, x_max = min(x_pos), max(x_pos)
+        y_min, y_max = min(y_pos), max(y_pos)
+        x_pad *= x_max - x_min
+        y_pad *= y_max - y_min
+        fig.gca().set_xlim(x_min - x_pad, x_max + x_pad)
+        fig.gca().set_ylim(y_min - y_pad, y_max + y_pad)
         fig.show()
